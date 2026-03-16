@@ -210,11 +210,19 @@ function optimize_and_track(T_ns, η, Δ_MHz; Nm=12, maxiters=500, nbar=0.2, see
     S_t = zeros(Float64, length(track_tlist))
     
     # We strictly test the optimized pulse on the |0> ⊗ |0> state for the entropy graph
-    ψ_t = ops.ket0 ⊗ fock(0, Nm) 
+    # ψ_t = ops.ket0 ⊗ fock(0, Nm) 
+    # state = 1/sqrt(2) * (|0⟩ ⊗ |n=0⟩ + |1⟩ ⊗ |n=1⟩)
+    term1 = ops.ket0 ⊗ fock(4, Nm)
+    term2 = ops.ket1 ⊗ fock(6, Nm)
+    ψ_t = (term1 + term2) / sqrt(2.0)
     U_dt = exp(-1im * track_dt * H_opt)
     
+    P_mn_t = zeros(Float64, Nm, length(track_tlist))
+
     for (i, t) in enumerate(track_tlist)
         S_t[i] = von_neumann_entropy(ψ_t, Nm)
+        M_reshape = reshape(ψ_t, Nm, 2)
+        P_mn_t[:, i] = vec(sum(abs2, M_reshape; dims=2))
         if i < length(track_tlist)
             ψ_t = U_dt * ψ_t
         end
@@ -222,15 +230,15 @@ function optimize_and_track(T_ns, η, Δ_MHz; Nm=12, maxiters=500, nbar=0.2, see
     
     max_S = maximum(S_t)
 
-    return result.J_T, max_S, Ω_opt_val, track_tlist, S_t
+    return result.J_T, max_S, Ω_opt_val, track_tlist, S_t, P_mn_t
 end
 
 function main()
     # Your requested parameter grid
     println("Threads available: ", Threads.nthreads())
-    Ts = [10.0, 20.0, 50.0, 200.0]
+    Ts = [10.0, 20.0, 40.0, 50.0]
     etas = [0.1, 0.5, 0.8]
-    detunings = [0.0, 1.0, 2.0]
+    detunings = [0.0]
     Nm = 12 
     
     results = []
@@ -245,7 +253,7 @@ function main()
         @printf("Optimizing: T = %5.1fns, η = %.1f, Δ = %.1fMHz...", T, η, Δ)
         
         # Run the optimization and extract the time-series arrays
-        J_T, S_max, Ω_opt, t_array, S_array = optimize_and_track(T, η, Δ; Nm=Nm)
+        J_T, S_max, Ω_opt, t_array, S_array, P_mn_array = optimize_and_track(T, η, Δ; Nm=Nm)
         
         @printf(" J_T = %.2e, S_max = %.4f\n", J_T, S_max)
         
@@ -287,11 +295,22 @@ function main()
             ylims = (0, max(S_max * 1.2, 0.1))
         )
         
-        # Stack them vertically
-        p_combined = plot(p_ctrl, p_ent, layout=(2,1), size=(700, 600), margin=5Plots.mm)
+        # 3. Third Panel: Motional Heatmap
+        p_motion = heatmap(t_array, 0:Nm-1, P_mn_array,
+            xlabel = "Time (ns)", 
+            ylabel = "Fock state n",
+            title = "Motional Dist p(n,t)",
+            color = :viridis,
+            colorbar = false
+        )
+        
+        # Stack all three vertically
+        p_combined = plot(p_ctrl, p_ent, p_motion, layout=(3,1), size=(700, 900), margin=5Plots.mm)
         
         plot_name = @sprintf("pulse_and_entropy_T%.0f_eta%.1f_Delta%.1f.png", T, η, Δ)
         savefig(p_combined, joinpath(indiv_plots_dir, plot_name))
+        
+        
     end
 
     df = DataFrame(results)
@@ -321,6 +340,46 @@ function main()
     plot_path = plotsdir("entanglement_vs_infidelity_exact.png")
     savefig(p_macro, plot_path)
     println("Aggregate plot saved successfully to $plot_path")
+
+    unique_Ts = sort(unique(df.T))
+    unique_etas = sort(unique(df.η))
+    unique_deltas = sort(unique(df.Δ))
+       
+    println("Generating S_max temperature heatmaps...")
+        
+    for T_val in unique_Ts
+        df_T = filter(row -> row.T == T_val, df)
+            
+        # Initialize a 2D matrix (rows = Δ, columns = η)
+        Z = zeros(Float64, length(unique_deltas), length(unique_etas))
+            
+        for (i, d) in enumerate(unique_deltas)
+            for (j, e) in enumerate(unique_etas)
+                    # Find the matching run
+                row = filter(r -> r.η == e && r.Δ == d, df_T)
+                if nrow(row) > 0
+                    Z[i, j] = row.S_max[1]
+                else
+                    Z[i, j] = NaN # Handle missing data gracefully
+                end
+            end
+        end
+            
+        p_heat = heatmap(unique_etas, unique_deltas, Z, 
+            xlabel="Lamb-Dicke Parameter (η)", 
+            ylabel="Detuning Δ (MHz)", 
+            title="Max Entanglement S_max (T = $(T_val)ns)",
+            color=:plasma, 
+            colorbar_title="S_max",
+            size=(600, 500),
+            margin=5Plots.mm
+            )
+            
+        heat_path = plotsdir("Smax_heatmap_T$(T_val).png")
+        savefig(p_heat, heat_path)
+    end
+        
+    println("All plots completed.")
 end
 
 main()
