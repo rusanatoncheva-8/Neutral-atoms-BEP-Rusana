@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quantum Optimal Control: Bloch Sphere X-Gate</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0a0a0c; font-family: sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; border: 1px solid #444; }
+        button { background: #333; color: white; border: 1px solid #666; padding: 8px 12px; cursor: pointer; margin-right: 5px; border-radius: 4px; transition: 0.3s; }
+        button:hover { background: #555; border-color: #fff; }
+        .label { font-weight: bold; margin-bottom: 10px; display: block; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <span class="label">TRANSITION: |0⟩ → |+⟩ (π/2 Gate)</span>
+    <button onclick="animateGate('ideal')">Play Ideal Gate</button>
+    <button onclick="animateGate('optimized')">Play Optimized Path</button>
+    <button onclick="resetVector()">Reset</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+    // --- Setup Scene ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    camera.position.set(2, 2, 4);
+    controls.update();
+
+    // --- Bloch Sphere Geometry ---
+    const sphereGeo = new THREE.SphereGeometry(1, 32, 32);
+    const sphereMat = new THREE.MeshPhongMaterial({ color: 0x888888, transparent: true, opacity: 0.15, wireframe: true });
+    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    scene.add(sphere);
+
+    // --- Axes ---
+    const createAxis = (end, color, label) => {
+        const mat = new THREE.LineBasicMaterial({ color: color });
+        const points = [new THREE.Vector3(0, 0, 0), end];
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        scene.add(new THREE.Line(geo, mat));
+    };
+    createAxis(new THREE.Vector3(1.2, 0, 0), 0xff4444); // X
+    createAxis(new THREE.Vector3(0, 1.2, 0), 0x44ff44); // Y
+    createAxis(new THREE.Vector3(0, 0, 1.2), 0x4444ff); // Z
+
+    // --- Lighting ---
+    const light = new THREE.PointLight(0xffffff, 1, 100);
+    light.position.set(5, 5, 5);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040));
+
+    // --- Vector & Trail ---
+    let vector = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 1, 0xffff00);
+    scene.add(vector);
+
+    let trailPoints = [];
+    let trailLine;
+
+    function resetVector() {
+        scene.remove(vector);
+        if(trailLine) scene.remove(trailLine);
+        vector = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 1, 0xffff00);
+        scene.add(vector);
+        trailPoints = [];
+    }
+
+    // --- Animations ---
+    let animationId;
+    function animateGate(type) {
+        resetVector();
+        let frame = 0;
+        const totalFrames = 120;
+        const color = (type === 'ideal') ? 0x00ccff : 0xff3300;
+
+        function step() {
+            if (frame > totalFrames) return;
+            let t = frame / totalFrames;
+            let newPos;
+
+            if (type === 'ideal') {
+                // Perfect arc along the Z-X plane
+                let theta = t * (Math.PI / 2);
+                newPos = new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta));
+            } else {
+                // Complex Optimized Path: Spiraling and moving inward (mixed state/entanglement)
+                let theta = t * (Math.PI / 2);
+                let spiral = Math.sin(t * 20) * 0.15;
+                let inward = 1 - (Math.sin(t * Math.PI) * 0.3); // Vector shortens (purity loss)
+                newPos = new THREE.Vector3(Math.sin(theta) * inward, spiral * inward, Math.cos(theta) * inward);
+            }
+
+            vector.setDirection(newPos.clone().normalize());
+            vector.setLength(newPos.length());
+            
+            trailPoints.push(newPos);
+            if(trailLine) scene.remove(trailLine);
+            const trailGeo = new THREE.BufferGeometry().setFromPoints(trailPoints);
+            const trailMat = new THREE.LineBasicMaterial({ color: color, linewidth: 2 });
+            trailLine = new THREE.Line(trailGeo, trailMat);
+            scene.add(trailLine);
+
+            frame++;
+            animationId = requestAnimationFrame(step);
+        }
+        cancelAnimationFrame(animationId);
+        step();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
