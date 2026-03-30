@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Power Broadening Spectrum</title>
+    <style>
+        body { margin: 0; background-color: #1a1a24; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+        #ui-container { margin-top: 20px; text-align: center; width: 80%; max-width: 600px; }
+        input[type=range] { width: 100%; margin: 15px 0; }
+        canvas { border: 1px solid #333; margin-top: 20px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,255,255,0.1); }
+        .label-val { font-weight: bold; color: #00ffff; font-size: 1.2em; }
+    </style>
+</head>
+<body>
+
+<div id="ui-container">
+    <label>Drive Ratio (Ω / ω): <span id="ratio-val" class="label-val">0.10</span></label>
+    <input type="range" id="drive-slider" min="0.05" max="2.0" step="0.01" value="0.10">
+    <p style="font-size: 14px; color: #aaa;">Observe how increasing the drive strength causes the carrier and sideband transitions to overlap.</p>
+</div>
+
+<canvas id="spectrumCanvas" width="800" height="400"></canvas>
+
+<script>
+    const canvas = document.getElementById('spectrumCanvas');
+    const ctx = canvas.getContext('2d');
+    const slider = document.getElementById('drive-slider');
+    const ratioVal = document.getElementById('ratio-val');
+
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // Graph mapping: x from -3 to +3 (Detuning / ω)
+    const xMin = -3;
+    const xMax = 3;
+    const yMin = 0;
+    const yMax = 1.2;
+
+    function mapX(x) { return ((x - xMin) / (xMax - xMin)) * width; }
+    function mapY(y) { return height - ((y - yMin) / (yMax - yMin)) * height; }
+
+    // THE GOVERNING EQUATION: Lorentzian Line Shape
+    // L(x) = (gamma/2)^2 / ((x - x0)^2 + (gamma/2)^2)
+    function lorentzian(x, x0, gamma, amplitude) {
+        const halfGamma = gamma / 2;
+        const denominator = Math.pow(x - x0, 2) + Math.pow(halfGamma, 2);
+        return amplitude * (Math.pow(halfGamma, 2) / denominator);
+    }
+
+    function drawSpectrum() {
+        ctx.clearRect(0, 0, width, height);
+        
+        const omegaRatio = parseFloat(slider.value);
+        ratioVal.innerText = omegaRatio.toFixed(2);
+
+        // Power Broadening: The linewidth (gamma) scales with the Rabi frequency (omegaRatio)
+        // We add a baseline natural linewidth (0.05) so it doesn't go to zero
+        const gamma = 0.05 + omegaRatio * 0.8; 
+
+        // Draw Axes
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, mapY(0)); ctx.lineTo(width, mapY(0)); // X-axis
+        ctx.moveTo(mapX(0), 0); ctx.lineTo(mapX(0), height); // Y-axis
+        ctx.stroke();
+
+        // Draw Axis Labels
+        ctx.fillStyle = '#aaa';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText("0", mapX(0), mapY(-0.05));
+        ctx.fillText("-1 (Red Sideband)", mapX(-1), mapY(-0.05));
+        ctx.fillText("+1 (Blue Sideband)", mapX(1), mapY(-0.05));
+        ctx.fillText("Detuning (Δ / ω)", mapX(2.5), mapY(-0.05));
+
+        // Calculate the composite curve
+        ctx.beginPath();
+        let first = true;
+        for (let px = 0; px <= width; px++) {
+            // Map pixel back to physical X value
+            let x = xMin + (px / width) * (xMax - xMin);
+            
+            // Sum of the three peaks
+            // Carrier (x0 = 0), Red (x0 = -1), Blue (x0 = +1)
+            // In a high-eta regime, sideband amplitude is comparable to the carrier
+            let y1 = lorentzian(x, 0, gamma, 1.0);  
+            let y2 = lorentzian(x, -1, gamma, 0.7); 
+            let y3 = lorentzian(x, 1, gamma, 0.7);  
+            
+            let yTotal = y1 + y2 + y3;
+
+            if (first) {
+                ctx.moveTo(px, mapY(yTotal));
+                first = false;
+            } else {
+                ctx.lineTo(px, mapY(yTotal));
+            }
+        }
+
+        // Styling the Curve
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Fill under the curve
+        ctx.lineTo(width, mapY(0));
+        ctx.lineTo(0, mapY(0));
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0, 255, 255, 0.15)';
+        ctx.fill();
+    }
+
+    // Event listener for the slider
+    slider.addEventListener('input', drawSpectrum);
+
+    // Initial draw
+    drawSpectrum();
+</script>
+</body>
+</html>
